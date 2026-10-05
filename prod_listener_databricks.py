@@ -168,6 +168,33 @@ def create_foreach_batch_writer(
         logger.info(f"Batch {batch_id}: {valid_count} valid rows → Delta | {invalid_count} invalid → DLQ")
  
     return write_batch
+
+
+class StreamingQListener(StreamingQueryListener):
+    """Spark streaming query listener for lag detection and alerting."""
+ 
+    def onQueryStarted(self, event: Any) -> None:
+        logger.info(f"Query started: {event.id}")
+ 
+    def onQueryProgress(self, event: Any) -> None:
+        p = event.progress
+        input_rate = p.inputRowsPerSecond
+        proc_rate = p.processedRowsPerSecond
+ 
+        logger.info(
+            f"Batch {p.batchId}: input={input_rate:.1f}/s, "
+            f"processed={proc_rate:.1f}/s, rows={p.numInputRows}"
+        )
+ 
+        # Alert on consumer lag buildup
+        if input_rate > 0 and proc_rate > 0 and input_rate > proc_rate * 1.5:
+            logger.warning(
+                f"Consumer lag detected! input={input_rate:.1f}/s > "
+                f"processing={proc_rate:.1f}/s — scale up or reduce batch size"
+            )
+ 
+    def onQueryTerminated(self, event: Any) -> None:
+        logger.info(f"Query terminated: {event.id}, exception={event.exception}")
  
  
 def start_event_hub_stream(
@@ -210,11 +237,13 @@ def start_event_hub_stream(
         .option("checkpointLocation", checkpoint_path)
         .start()
     )
+
+    Spark.streams.addListener(StreamingQListener())
  
     logger.info(f"Stream started with trigger={trigger_mode}. Awaiting termination...")
     query.awaitTermination()
     logger.info("Stream terminated.")
- 
+
  
 # --- Execution Entrypoint ---
 if __name__ == "__main__":
