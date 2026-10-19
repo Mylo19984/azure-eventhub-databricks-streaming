@@ -24,8 +24,8 @@ def send_test_messages():
         transport_type=TransportType.AmqpOverWebsocket
     ) as producer:
        
-        event_data_batch = producer.create_batch()
         current_device_id = "sensor_01"
+        event_data_batch = producer.create_batch(partition_key=current_device_id)
        
         # Generate 5 records and add them to the batch
         for i in range(5):
@@ -37,7 +37,6 @@ def send_test_messages():
             }
            
             event = EventData(json.dumps(telemetry_data))
-            event.partition_key = current_device_id
            
             # Add event to the batch
             event_data_batch.add(event)
